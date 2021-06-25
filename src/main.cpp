@@ -1,13 +1,14 @@
 #include <Arduino.h>
-#include <BoxLock.h>
+#include <Game.h>
 
-BoxLock boxLock;
+Game game;
 
 void setup() {
-  boxLock.setup(9);
+  Serial.begin(9600);
+  game.startGame();
 }
 
-
-
 void loop() {
+  game.checkState();
+  delay(100);
 }
