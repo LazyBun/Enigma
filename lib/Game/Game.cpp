@@ -7,44 +7,49 @@ const int MotorDigitalPin = 9;
 
 const int SoundSensorPin = A0;
 const int SoundSensorVolumeThreshold = 300;
-// aka violet
-const RGB SoundSensorSideColor = {.red = 191, .green = 21, .blue = 230};
+// aka red
+const RGB SoundSensorSideColor = {.red = 255, .green = 0, .blue = 0};
 
 const int TiltSensorPin = 2;
-// aka brown
-const RGB TiltSideColor = {.red = 158, .green = 127, .blue = 24};
+// aka white
+const RGB TiltSideColor = {.red = 255, .green = 255, .blue = 255};
 
 const int LightSensorPin = A1;
 //fimxe actually check what the value should be
-const int LightSensorBrightnessThreshold = 950;
+const int LightSensorBrightnessThreshold = 600;
 // aka yellow
 const RGB LightSensorSideColor = {.red = 255, .green = 255, .blue = 0};
 
 const int TemperatureAndMosturePin = 3;
-const float ColdTemperatureThreshold = 15.0;
+const float ColdTemperatureDifferenceThreshold = 2.0;
 // aka blue
-const RGB ColdTemperatureSideColor = {.red = 0, .green = 110, .blue = 255};
-
-const int WaterSensorPin = A4;
-//fixme actually check what the value should be
-const int WaterSensorThreshold = 100;
-const int TemperatureOnlyPin = A5;
-//fixme actually check what the value should be
-const int HotWaterThreshold = 40;
-// aka red
-const RGB HotWaterSideColor = {.red = 255, .green = 0, .blue = 0};
+const RGB ColdTemperatureSideColor = {.red = 0, .green = 0, .blue = 255};
 
 const RGB NoColor = {.red = 0, .green = 0, .blue = 0};
 const RGB SuccessColor = {.red = 0, .green = 255, .blue = 0};
 
 void Game::startGame() {
     this->gameState = UpsideDownCheck;
+    // fixme unify pin initalization
     this->boxLock.setup(MotorDigitalPin);
     this->rgbLed.setup(TiltSideColor);
-
+    this->buzzer.setup();
+    
+    this->upsideDownCounter = 0;
 
     pinMode(TiltSensorPin, INPUT);
     digitalWrite(TiltSensorPin, HIGH);
+
+    float temperature;
+    float humidity;
+    // Idk if it's actually necessary
+    byte data[40] = {0};
+    this->temperatureAndMoistureSensor.read2(TemperatureAndMosturePin, &temperature, &humidity, data);
+    this->initialTemperature = temperature;
+    Serial.println(this->initialTemperature);
+
+    delay(2000);
+    // this->buzzer.buzz(500);
 }
 
 bool isUpsideDownSolved() {
@@ -69,7 +74,7 @@ bool isLightSolved() {
     return lightValue >= LightSensorBrightnessThreshold;
 }
 
-bool isColdSolved(SimpleDHT11 sensor) {
+bool isColdSolved(SimpleDHT11 sensor, float initialTemp) {
     float temperature;
     float humidity;
     // Idk if it's actually necessary
@@ -77,7 +82,7 @@ bool isColdSolved(SimpleDHT11 sensor) {
     sensor.read2(TemperatureAndMosturePin, &temperature, &humidity, data);
     Serial.print("Temperature and humidity sensor state: ");
     Serial.println(temperature);
-    return temperature <= ColdTemperatureThreshold;
+    return initialTemp - temperature >= ColdTemperatureDifferenceThreshold;
 }
 
 // TODO: decide whether to do that or maybe just change it to temperature check (like match near sensor)
@@ -93,12 +98,18 @@ bool isHotWaterSolved() {
 void Game::checkState() {
     // maybe make this public and run update in main
     rgbLed.update();
+    buzzer.update();
     switch (this->gameState) {
         case UpsideDownCheck:
             if (isUpsideDownSolved()) {
+                this->upsideDownCounter += 1;
+            } else {
+                this->upsideDownCounter = 0;
+            }
+            if (this->upsideDownCounter > 4) {
                 Serial.println("UpsideDownCheck solved!");
                 rgbLed.setConstantColor(SoundSensorSideColor);
-                rgbLed.setFlashingColor(SuccessColor, 4000, 500);
+                rgbLed.setFlashingColor(SuccessColor, 4000, 200);
                 this->gameState = SoundCheck;
             }
             break;
@@ -106,7 +117,7 @@ void Game::checkState() {
             if(isSoundSolved()) {
                 Serial.println("SoundCheck solved!");
                 rgbLed.setConstantColor(LightSensorSideColor);
-                rgbLed.setFlashingColor(SuccessColor, 4000, 500);
+                rgbLed.setFlashingColor(SuccessColor, 4000, 200);
                 this->gameState = LightCheck;
             }
             break;
@@ -114,23 +125,18 @@ void Game::checkState() {
             if (isLightSolved()) {
                 Serial.println("LightCheck solved!");
                 rgbLed.setConstantColor(ColdTemperatureSideColor);
-                rgbLed.setFlashingColor(SuccessColor, 4000, 500);
+                rgbLed.setFlashingColor(SuccessColor, 4000, 200);
                 this->gameState = ColdCheck;
             }
             break;
         case ColdCheck:
-            if (isColdSolved(temperatureAndMoistureSensor)) {
+            if (isColdSolved(temperatureAndMoistureSensor, initialTemperature)) {
                 Serial.println("ColdCheck solved!");
-                rgbLed.setConstantColor(HotWaterSideColor);
-                rgbLed.setFlashingColor(SuccessColor, 4000, 500);
-                this->gameState = HotWaterCheck;
+                rgbLed.setConstantColor(SuccessColor);
+                rgbLed.setFlashingColor(SuccessColor, 4000, 200);
+                // buzzer.buzz(500);
+                this->gameState = Done;
             }
-            break;
-        case HotWaterCheck:
-            Serial.println("HotWaterCheck solved!");
-            rgbLed.setConstantColor(SuccessColor);
-            rgbLed.setFlashingColor(SuccessColor, 4000, 500);
-            this->gameState = Done;
             break;
         case Done:
             this->boxLock.openBox();
